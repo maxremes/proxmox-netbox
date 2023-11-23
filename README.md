@@ -1,4 +1,4 @@
-# Proxmox till Netbox Synkronisering
+# Proxmox - Netbox Synkronisering
 
 ## Översikt
 Detta projekt innehåller ett Python-skript för att synkronisera data från Proxmox, en servervirtualiseringshanteringsplattform, till Netbox, en infrastrukturresurshantering (IPAM/DCIM) plattform. Skriptet är avsett att automatisera processen att uppdatera Netbox med den senaste informationen om virtuella maskiner (VM) och LXC-containrar hanterade av Proxmox.
