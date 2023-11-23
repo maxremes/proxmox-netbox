@@ -7,14 +7,14 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Proxmox configuration
-proxmox_host = 'mareborn.tail09dea.ts.net'
-username = 'root@pam'
-password = 'Sleek22(knee'
+proxmox_host = 'proxmox_host'
+username = 'username'
+password = 'password'
 proxmox = ProxmoxAPI(proxmox_host, user=username, password=password, verify_ssl=False)
 
 # Netbox configuration
-netbox_api_url = 'http://netbox.tail09dea.ts.net:8000/api/'
-netbox_api_token = 'af0b542d34d3a5d358b4d5ec9f0f2d206d194d76'
+netbox_api_url = 'netbox_api_url'
+netbox_api_token = 'netbox_api_token'
 
 def update_or_create_vm_in_netbox(vm_info, vm_type):
     url = netbox_api_url + 'virtualization/virtual-machines/'
