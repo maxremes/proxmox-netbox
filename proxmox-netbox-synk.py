@@ -2,19 +2,20 @@ import requests
 import json
 from proxmoxer import ProxmoxAPI
 import urllib3
+import threading
 
 # Disable SSL warnings (use with caution)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Proxmox configuration
-proxmox_host = 'proxmox_host'
-username = 'username'
-password = 'password'
-proxmox = ProxmoxAPI(proxmox_host, user=username, password=password, verify_ssl=False)
+# Proxmox Configuration
+proxmox_host = 'mareborn.tail09dea.ts.net'
+proxmox_username = 'root@pam'
+proxmox_password = 'Sleek22(knee'
+proxmox = ProxmoxAPI(proxmox_host, user=proxmox_username, password=proxmox_password, verify_ssl=False)
 
-# Netbox configuration
-netbox_api_url = 'netbox_api_url'
-netbox_api_token = 'netbox_api_token'
+# Netbox Configuration
+netbox_api_url = 'http://netbox.tail09dea.ts.net:8000/api/'
+netbox_api_token = 'af0b542d34d3a5d358b4d5ec9f0f2d206d194d76'
 
 def update_or_create_vm_in_netbox(vm_info, vm_type):
     url = netbox_api_url + 'virtualization/virtual-machines/'
@@ -30,6 +31,8 @@ def update_or_create_vm_in_netbox(vm_info, vm_type):
     else:
         disk_in_gb = min(vm_info.get('maxdisk', 0) / (1024 ** 3), 2147483647)
 
+    vmid = vm_info.get('vmid')  # VM ID for both VM and LXC
+
     data = {
         'name': vm_info['name'],
         'status': status,
@@ -40,7 +43,8 @@ def update_or_create_vm_in_netbox(vm_info, vm_type):
         'tenant': 1,
         'vcpus': vm_info.get('cores'),
         'memory': vm_info.get('memory'),
-        'disk': disk_in_gb
+        'disk': disk_in_gb,
+        'custom_fields': {'VMID': vmid}
     }
 
     response = requests.get(url + '?name=' + vm_info['name'], headers=headers)
@@ -57,23 +61,72 @@ def get_vm_or_lxc_info(node, vm_or_lxc_id, type='qemu'):
         if type == 'qemu':
             vm_config = proxmox.nodes(node['node']).qemu(vm_or_lxc_id).config.get()
             vm_status = proxmox.nodes(node['node']).qemu(vm_or_lxc_id).status.current.get()
-            return {**vm_config, **vm_status}  # Combine config and status data for VM
+            return {**vm_config, **vm_status}
         elif type == 'lxc':
             lxc_config = proxmox.nodes(node['node']).lxc(vm_or_lxc_id).config.get()
             lxc_status = proxmox.nodes(node['node']).lxc(vm_or_lxc_id).status.current.get()
-            return {**lxc_config, **lxc_status}  # Combine config and status data for LXC
+            return {**lxc_config, **lxc_status}
     except Exception as e:
         print(f"Error getting info for {type} {vm_or_lxc_id} on node {node['node']}: {e}")
         return None
 
-# Fetch list of VMs and LXCs from Proxmox
+def get_all_vm_names_from_netbox():
+    url = netbox_api_url + 'virtualization/virtual-machines/'
+    headers = {'Authorization': 'Token ' + netbox_api_token}
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        vms = response.json()['results']
+        return [vm['name'] for vm in vms]
+    else:
+        print(f"Error fetching VMs from Netbox: {response.text}")
+        return []
+
+def decommission_vm_in_netbox(vm_name):
+    get_url = netbox_api_url + 'virtualization/virtual-machines/'
+    headers = {
+        'Authorization': 'Token ' + netbox_api_token,
+        'Content-Type': 'application/json'
+    }
+    get_response = requests.get(get_url + '?name=' + vm_name, headers=headers)
+
+    if get_response.status_code == 200 and get_response.json()['count'] > 0:
+        vm_id = get_response.json()['results'][0]['id']
+        patch_url = netbox_api_url + f'virtualization/virtual-machines/{vm_id}/'
+        patch_data = {'status': 'decommissioning'}
+        patch_response = requests.patch(patch_url, headers=headers, data=json.dumps(patch_data))
+
+        if patch_response.status_code == 200:
+            print(f"VM {vm_name} set to Decommissioning in Netbox.")
+        else:
+            print(f"Error setting VM {vm_name} to Decommissioning in Netbox: {patch_response.text}")
+    else:
+        print(f"VM {vm_name} not found in Netbox.")
+
+# Parallelize VM and LXC sync
+def handle_vm_or_lxc(node, vm_or_lxc_id, vm_type):
+    vm_info = get_vm_or_lxc_info(node, vm_or_lxc_id, vm_type)
+    if vm_info:
+        update_or_create_vm_in_netbox(vm_info, vm_type)
+
+threads = []
 for node in proxmox.nodes.get():
     for vm in proxmox.nodes(node['node']).qemu.get():
-        vm_info = get_vm_or_lxc_info(node, vm['vmid'], 'qemu')
-        if vm_info:
-            update_or_create_vm_in_netbox(vm_info, 'qemu')
+        t = threading.Thread(target=handle_vm_or_lxc, args=(node, vm['vmid'], 'qemu'))
+        t.start()
+        threads.append(t)
 
     for lxc in proxmox.nodes(node['node']).lxc.get():
-        lxc_info = get_vm_or_lxc_info(node, lxc['vmid'], 'lxc')
-        if lxc_info:
-            update_or_create_vm_in_netbox(lxc_info, 'lxc')
+        t = threading.Thread(target=handle_vm_or_lxc, args=(node, lxc['vmid'], 'lxc'))
+        t.start()
+        threads.append(t)
+
+for t in threads:
+    t.join()
+
+# Check and handle VMs that no longer exist in Proxmox
+netbox_vm_names = get_all_vm_names_from_netbox()
+proxmox_vm_lxc_names = [vm['name'] for node in proxmox.nodes.get() for vm in (proxmox.nodes(node['node']).qemu.get() + proxmox.nodes(node['node']).lxc.get())]
+
+for vm_name in netbox_vm_names:
+    if vm_name not in proxmox_vm_lxc_names:
+        decommission_vm_in_netbox(vm_name)
