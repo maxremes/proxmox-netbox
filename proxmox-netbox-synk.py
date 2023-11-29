@@ -8,14 +8,14 @@ import threading
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Proxmox Configuration
-proxmox_host = 'host'
-proxmox_username = 'username'
-proxmox_password = 'password'
+proxmox_host = '<host>'
+proxmox_username = '<user>@pam'
+proxmox_password = '<password>'
 proxmox = ProxmoxAPI(proxmox_host, user=proxmox_username, password=proxmox_password, verify_ssl=False)
 
 # Netbox Configuration
-netbox_api_url = 'netbox-host'
-netbox_api_token = 'netboxapihost'
+netbox_api_url = 'netboxhost'
+netbox_api_token = 'api-user-key'
 
 def update_or_create_vm_in_netbox(vm_info, vm_type):
     url = netbox_api_url + 'virtualization/virtual-machines/'
